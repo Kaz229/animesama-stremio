@@ -78,7 +78,7 @@ Stremio → addon.js (handler stream)
 ### Installation
 
 ```bash
-git clone https://github.com/hbinduni/animesama-stremio.git
+git clone https://github.com/Kaz229/animesama-stremio.git
 cd animesama-stremio
 npm install
 ```
