@@ -13,12 +13,45 @@ en VOSTFR et en VF, directement dans Stremio.
 
 Seuls les animés sont exposés : les scans et webtoons du site sont filtrés.
 
-## Prérequis
+## Installation simplifiée (recommandée)
+
+Pour une installation sans ligne de commande, un script fait tout : il installe
+Node.js si besoin, télécharge l'addon, choisit un port libre, démarre le serveur
+et ouvre Stremio directement sur la fenêtre d'installation.
+
+| Système | Fichier à télécharger |
+|---|---|
+| Windows | [installer.bat](https://raw.githubusercontent.com/Kaz229/animesama-stremio/master/installeur/installer.bat) |
+| macOS, Linux | [installer.command](https://raw.githubusercontent.com/Kaz229/animesama-stremio/master/installeur/installer.command) |
+
+**Windows** — clic droit sur le lien, « Enregistrer la cible sous », puis
+double-cliquer le fichier. Windows affichera un avertissement SmartScreen sur
+un fichier téléchargé : « Informations complémentaires », puis « Exécuter
+quand même ».
+
+**macOS** — enregistrer le fichier, puis dans le Terminal :
+`chmod +x installer.command`, et double-cliquer. macOS bloquera le premier
+lancement : **Réglages Système → Confidentialité et sécurité → Ouvrir quand même**.
+
+**Linux** — `bash installer.command`.
+
+Relancer le même fichier plus tard met l'addon à jour et le redémarre, en
+conservant la même adresse.
+
+> La fenêtre ouverte par le script **est** le serveur : la fermer arrête
+> l'addon. Il faut la laisser ouverte pendant le visionnage.
+
+Le détail de ce que fait le script, et la marche à suivre en cas de problème,
+sont dans [docs/installation-simplifiee.md](docs/installation-simplifiee.md).
+
+## Installation manuelle
+
+### Prérequis
 
 - Node.js >= 18
 - npm
 
-## Installation
+### Étapes
 
 ```bash
 git clone https://github.com/Kaz229/animesama-stremio.git
