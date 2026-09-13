@@ -83,6 +83,29 @@ celles qui répondent.
 19 combinaisons saison/langue ; 07 Ghost reste en VOSTFR seule, sa VF renvoyant un 404.
 Lecture d'un stream VF confirmée : `HTTP 206`, `video/mp4`, 300 Ko.
 
+## ✅ P7 — Recherche sans résultat dans Stremio — fait
+
+Symptôme : la barre de recherche de Stremio ne remontait aucun animé, alors que
+le scraper répondait correctement.
+
+**Cause.** Le catalogue `animesama-recherche` ne déclarait la recherche que sous
+la forme moderne, `extra: [{ name: 'search', isRequired: true }]`. Stremio v4 se
+fonde encore sur l'ancienne forme — `extraSupported` / `extraRequired` — pour
+choisir les catalogues à interroger depuis la barre de recherche, et le SDK ne
+les dérive pas de `extra`. Le catalogue n'était donc jamais appelé.
+
+**Correctif.** Les deux formes cohabitent désormais dans le manifest. Au passage,
+le handler ne sert plus la recherche que depuis son catalogue dédié : les trois
+catalogues thématiques y répondaient aussi, ce qui aurait affiché les mêmes
+résultats quatre fois.
+
+**Vérifié** : `search=naruto` → 5 entrées (Naruto, Shippuden, Boruto, Naruto SD
+Rock Lee, Sasuke Retsuden), `search=one piece` → 1 ; les catalogues thématiques
+renvoient bien une liste vide sur une requête de recherche.
+
+> Le manifest est mémorisé par Stremio : désinstaller puis réinstaller l'addon
+> pour que le changement soit pris en compte.
+
 ## P3 — Extraction lpayer
 
 Toujours bloquée, voir [hebergeurs.md](hebergeurs.md#problème-lpayer-todo-principal).

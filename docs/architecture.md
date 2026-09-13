@@ -76,6 +76,15 @@ La recherche a son propre catalogue, `animesama-recherche`, déclaré avec
 barre de recherche. Il interroge `/catalogue/?search=`, seul endroit du site qui
 sache chercher — les sections de l'accueil sont des listes figées.
 
+La déclaration doit exister sous **les deux formes** : `extra` (moderne) et
+`extraSupported` / `extraRequired` (héritée). Le SDK ne dérive pas les secondes
+des premières, et Stremio v4 s'appuie sur elles pour choisir les catalogues à
+interroger depuis la barre de recherche — sans elles, le catalogue reste muet.
+
+Le handler refuse par ailleurs une requête `search` adressée à un autre
+catalogue : les trois catalogues thématiques y répondaient aussi, ce qui
+affichait les mêmes résultats quatre fois.
+
 ### Format des IDs Stremio
 
 ```

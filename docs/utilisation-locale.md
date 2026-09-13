@@ -86,5 +86,6 @@ Quatre conditions pour que cela marche :
 | `EADDRINUSE` au démarrage | Port déjà pris — en choisir un autre via `PORT=` |
 | Le catalogue est vide, timeouts dans les logs | L'IP codée en dur d'anime-sama a changé, voir [architecture.md](architecture.md#contournement-dns-fai-français) |
 | Des mangas apparaissent encore | Catalogue mémorisé par Stremio — désinstaller et réinstaller l'addon |
+| La recherche ne renvoie rien | Manifest mémorisé par Stremio — désinstaller et réinstaller l'addon (correctif en 1.2.1) |
 | Un épisode ne démarre pas | Essayer une autre source ; lpayer n'est pas extractible et Sendvid est en panne, voir [hebergeurs.md](hebergeurs.md) |
 

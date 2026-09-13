@@ -3,7 +3,7 @@ const { getCatalogue, getSectionAccueil, getAnimeMeta, getStreams } = require('.
 
 const manifest = {
   id: 'fr.animesama.stremio',
-  version: '1.2.0',
+  version: '1.2.1',
   name: 'Anime-Sama',
   description: 'Regardez les animes de Anime-Sama en VOSTFR et VF directement dans Stremio.',
   logo: 'https://anime-sama.fr/favicon.ico',
@@ -28,11 +28,18 @@ const manifest = {
     },
     {
       // Catalogue dédié à la recherche : isRequired le rend invisible dans
-      // Discover, il ne répond qu'aux requêtes de la barre de recherche
+      // Discover, il ne répond qu'aux requêtes de la barre de recherche.
+      //
+      // extraSupported/extraRequired sont l'ancienne forme du même contrat.
+      // Le SDK ne les dérive pas de `extra`, et c'est pourtant sur eux que
+      // Stremio v4 se fonde pour choisir les catalogues à interroger depuis
+      // la barre de recherche : sans eux, ce catalogue n'est jamais appelé.
       type: 'series',
       id: 'animesama-recherche',
       name: 'Anime-Sama — Recherche',
       extra: [{ name: 'search', isRequired: true }],
+      extraSupported: ['search'],
+      extraRequired: ['search'],
     },
   ],
   behaviorHints: {
@@ -60,7 +67,11 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
   const search = extra?.search || ''
 
   try {
+    // La recherche n'est servie que par son catalogue dédié : y répondre
+    // depuis les trois catalogues thématiques ferait apparaître les mêmes
+    // résultats quatre fois dans Stremio.
     if (search) {
+      if (id !== 'animesama-recherche') return { metas: [] }
       const metas = await getCatalogue(search)
       return { metas, cacheMaxAge: 600 }
     }
