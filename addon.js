@@ -1,9 +1,26 @@
 const { addonBuilder } = require('stremio-addon-sdk')
-const { getCatalogue, getSectionAccueil, getAnimeMeta, getStreams } = require('./scraper')
+const {
+  getCatalogue,
+  getSectionAccueil,
+  getAnimeMeta,
+  getStreams,
+  LANGUES_VIDEO,
+} = require('./scraper')
+
+// Date de diffusion de substitution : le site n'en publie pas, mais Stremio
+// exige un `released` passé pour considérer l'épisode comme sorti. Un jour
+// par rang suffit à garder l'ordre, en restant loin dans le passé même pour
+// les séries les plus longues (One Piece, ~2300 épisodes).
+const ORIGINE_DIFFUSION = Date.UTC(2000, 0, 1)
+const UN_JOUR = 24 * 60 * 60 * 1000
+
+function dateDeRang(rang) {
+  return new Date(ORIGINE_DIFFUSION + rang * UN_JOUR).toISOString()
+}
 
 const manifest = {
   id: 'fr.animesama.stremio',
-  version: '1.2.1',
+  version: '1.3.0',
   name: 'Anime-Sama',
   description: 'Regardez les animes de Anime-Sama en VOSTFR et VF directement dans Stremio.',
   logo: 'https://anime-sama.fr/favicon.ico',
@@ -101,17 +118,28 @@ builder.defineMetaHandler(async ({ type, id }) => {
     // Construit les épisodes pour l'interface Stremio.
     // Le nombre d'épisodes vient désormais d'episodes.js, plus besoin d'en
     // générer un lot arbitraire dont l'essentiel ne renvoyait aucun stream.
+    //
+    // La langue ne fait pas un épisode distinct : la dupliquer ici donnait
+    // deux entrées portant le même couple (saison, épisode), et Stremio ne
+    // savait plus quel épisode suivait le précédent — l'enchaînement partait
+    // de la fin de la VOSTFR au premier épisode VF. Le choix VF/VOSTFR se
+    // fait désormais au niveau des streams.
     const videos = []
     for (const season of animeData.seasons) {
-      for (const lang of season.langs) {
-        for (let ep = 1; ep <= lang.episodes; ep++) {
-          videos.push({
-            id: `${id}:${season.num}:${ep}:${lang.code}`,
-            title: `S${season.num} E${ep} ${lang.code.toUpperCase()}`,
-            season: season.num,
-            episode: ep,
-          })
-        }
+      const nbEpisodes = Math.max(...season.langs.map(l => l.episodes))
+      for (let ep = 1; ep <= nbEpisodes; ep++) {
+        videos.push({
+          id: `${id}:${season.num}:${ep}`,
+          title: `S${season.num} E${ep}`,
+          season: season.num,
+          episode: ep,
+          // `released` est requis par la spec, et Stremio n'enchaîne pas sur
+          // un épisode qu'il croit à venir. Le site ne publie aucune date de
+          // diffusion : on pose une date passée, croissante dans l'ordre des
+          // épisodes, qui vaut rang et non information éditoriale.
+          released: dateDeRang(videos.length),
+          available: true,
+        })
       }
     }
 
@@ -133,13 +161,17 @@ builder.defineMetaHandler(async ({ type, id }) => {
 })
 
 // === STREAM ===
-// L'ID d'épisode est au format : as:{slug}:{season}:{episode}:{lang}
+// L'ID d'épisode est au format : as:{slug}:{season}:{episode}
+//
+// La forme historique as:{slug}:{season}:{episode}:{lang} reste acceptée :
+// c'est celle que Stremio a enregistrée dans la bibliothèque des utilisateurs
+// avant que la langue ne quitte l'identifiant d'épisode. Sans langue, toutes
+// celles qui existent sont proposées comme autant de sources.
 builder.defineStreamHandler(async ({ type, id }) => {
   if (type !== 'series' || !id.startsWith('as:')) return { streams: [] }
 
-  // Format : as:naruto:1:1:vostfr
   const parts = id.split(':')
-  if (parts.length < 5) return { streams: [] }
+  if (parts.length < 4) return { streams: [] }
 
   const [, slug, seasonStr, episodeStr, lang] = parts
   const season = parseInt(seasonStr)
@@ -147,9 +179,14 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
   if (!slug || isNaN(season) || isNaN(episode)) return { streams: [] }
 
+  const langues = lang ? [lang] : LANGUES_VIDEO
+
   try {
-    const streams = await getStreams(slug, season, episode, lang || 'vostfr')
-    console.log(`[stream] ${slug} S${season}E${episode} ${lang} → ${streams.length} stream(s)`)
+    const parLangue = await Promise.all(
+      langues.map(code => getStreams(slug, season, episode, code).catch(() => []))
+    )
+    const streams = parLangue.flat()
+    console.log(`[stream] ${slug} S${season}E${episode} [${langues.join(',')}] → ${streams.length} stream(s)`)
     return { streams }
   } catch (err) {
     console.error('[stream] Erreur:', err.message)

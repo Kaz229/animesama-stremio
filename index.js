@@ -1,7 +1,8 @@
 const { serveHTTP } = require('stremio-addon-sdk')
 const addonInterface = require('./addon')
 
-const PORT = process.env.PORT || 7000
+// 7000 est occupé par le récepteur AirPlay sur macOS : le défaut vise un port libre
+const PORT = process.env.PORT || 7011
 
 serveHTTP(addonInterface, { port: PORT })
 

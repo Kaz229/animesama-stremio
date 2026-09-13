@@ -417,4 +417,4 @@ function getPlayerName(url) {
   return 'Source'
 }
 
-module.exports = { getCatalogue, getSectionAccueil, getAnimeMeta, getEpisodes, getStreams }
+module.exports = { getCatalogue, getSectionAccueil, getAnimeMeta, getEpisodes, getStreams, LANGUES_VIDEO }

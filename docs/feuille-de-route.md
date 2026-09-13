@@ -106,6 +106,32 @@ renvoient bien une liste vide sur une requête de recherche.
 > Le manifest est mémorisé par Stremio : désinstaller puis réinstaller l'addon
 > pour que le changement soit pris en compte.
 
+## ✅ P8 — Lecture enchaînée des épisodes — fait
+
+Symptôme : l'épisode suivant ne s'enchaînait pas à la fin du précédent.
+
+**Cause.** Le handler meta traitait la langue comme une propriété de l'épisode :
+une saison de 220 épisodes disponible en VOSTFR et en VF produisait 440 entrées,
+dont 220 couples (saison, épisode) en double. Stremio, qui désigne l'épisode
+suivant par son numéro, ne pouvait plus trancher — et l'ordre du tableau plaçait
+les 220 VF après les 220 VOSTFR, si bien que la suite de S1E220 VOSTFR était
+S1E1 VF. Les épisodes n'avaient par ailleurs pas de `released`, que la spec
+donne pour requis et sans lequel Stremio peut les croire à venir.
+
+**Correctif.** La langue quitte l'identifiant d'épisode pour rejoindre les
+streams : `as:{slug}:{saison}:{episode}`, une entrée par épisode, et le handler
+stream propose toutes les langues disponibles comme autant de sources. Chaque
+épisode porte désormais `released` (date synthétique, un jour par rang) et
+`available`. L'ancien format d'ID reste accepté pour les bibliothèques déjà
+constituées.
+
+**Vérifié** : Naruto passe de 440 à 220 épisodes, zéro doublon, saison 1
+contiguë de 1 à 220 ; `as:naruto:1:1` renvoie 3 sources (1 VOSTFR, 2 VF) et
+`as:naruto:1:1:vostfr` continue de répondre.
+
+> Changement de format d'ID : désinstaller puis réinstaller l'addon. Les
+> épisodes déjà en cours de visionnage peuvent réapparaître comme non vus.
+
 ## P3 — Extraction lpayer
 
 Toujours bloquée, voir [hebergeurs.md](hebergeurs.md#problème-lpayer-todo-principal).

@@ -88,9 +88,24 @@ affichait les mêmes résultats quatre fois.
 ### Format des IDs Stremio
 
 ```
-as:{slug}:{saison}:{episode}:{langue}
-Exemple : as:sword-art-online:1:1:vostfr
+as:{slug}:{saison}:{episode}
+Exemple : as:sword-art-online:1:1
 ```
+
+La langue n'y figure pas. Elle l'a fait, et c'était une erreur de modèle : un
+épisode existait alors deux fois, en VOSTFR et en VF, sous le même couple
+(saison, épisode). Stremio ne pouvait plus désigner l'épisode suivant, et la
+lecture enchaînée sautait de la fin de la VOSTFR au premier épisode VF.
+
+La langue appartient au **stream**, pas à l'épisode : le handler `stream`
+propose désormais toutes les langues disponibles comme autant de sources.
+La forme historique `as:{slug}:{saison}:{episode}:{langue}` reste acceptée,
+car Stremio l'a enregistrée dans les bibliothèques existantes.
+
+Chaque épisode porte aussi `released` — requis par la spec — et `available`.
+Le site ne publie aucune date de diffusion : celle-ci est synthétique, un jour
+par rang à partir du 1ᵉʳ janvier 2000. Elle vaut ordre, pas information
+éditoriale, mais Stremio n'enchaîne pas sur un épisode qu'il croit à venir.
 
 ### Détection des saisons
 
