@@ -89,8 +89,11 @@ function estContenuVideo($card) {
 }
 
 // Extrait le slug d'un lien de fiche, ou null si le lien ne pointe pas vers une fiche
+// Le slug est le premier segment après /catalogue/. Les fiches du catalogue
+// s'arrêtent là (/catalogue/07-ghost) tandis que les cartes de l'accueil
+// poussent jusqu'à la saison et la langue (/catalogue/bleach/saison2-4/vostfr/).
 function slugDepuisHref(href) {
-  const match = (href || '').match(/\/catalogue\/([^/]+)\/?$/)
+  const match = (href || '').match(/\/catalogue\/([^/?#]+)/)
   if (!match) return null
   const slug = match[1]
   return slug && slug !== 'catalogue' ? slug : null
@@ -155,6 +158,59 @@ async function getCatalogue(search = '', genre = '', skip = 0) {
   })
 
   return deduped.slice(skip, skip + 100)
+}
+
+// === Sections de la page d'accueil ===
+//
+// L'accueil regroupe tout ce qu'on expose en catalogues dans un seul document,
+// d'où une seule requête pour les trois sections, mutualisée par fetchPage().
+//
+// Deux formes de cartes y cohabitent :
+//   - carte complète (.catalog-card), identique à celle du catalogue, dont le
+//     type se lit dans .info-value ;
+//   - carte compacte, sans .info-value mais porteuse d'un badge explicite
+//     (.badge-text vaut Anime, Scans, Webtoon ou Manga).
+const SECTIONS_ACCUEIL = {
+  recents: '#containerAjoutsAnimes',
+  classiques: '#containerClassiques',
+  pepites: '#containerPepites',
+}
+
+function estCarteAnime($carte) {
+  const badge = $carte.find('.badge-text').first().text().trim().toLowerCase()
+  if (badge) return badge === 'anime'
+  return estContenuVideo($carte)
+}
+
+async function getSectionAccueil(section) {
+  const selecteur = SECTIONS_ACCUEIL[section]
+  if (!selecteur) return []
+
+  const html = await fetchPage(BASE_URL + '/')
+  const $ = cheerio.load(html)
+  const results = []
+
+  $(`${selecteur} a[href*="/catalogue/"]`).each((_, el) => {
+    const $carte = $(el)
+    const slug = slugDepuisHref($carte.attr('href'))
+    if (!slug) return
+    if (!estCarteAnime($carte)) return
+
+    const img = $carte.find('img.card-image').first()
+    const title = (img.attr('alt') || $carte.find('.card-title').first().text() || '').trim()
+    const poster = img.attr('src') || img.attr('data-src') || ''
+
+    if (title) results.push(versEntree(slug, title, poster))
+  })
+
+  // Un même animé peut apparaître plusieurs fois dans les ajouts récents,
+  // une entrée par épisode publié
+  const vus = new Set()
+  return results.filter(r => {
+    if (vus.has(r.slug)) return false
+    vus.add(r.slug)
+    return true
+  })
 }
 
 // Récupère les métadonnées d'un anime
@@ -361,4 +417,4 @@ function getPlayerName(url) {
   return 'Source'
 }
 
-module.exports = { getCatalogue, getAnimeMeta, getEpisodes, getStreams }
+module.exports = { getCatalogue, getSectionAccueil, getAnimeMeta, getEpisodes, getStreams }

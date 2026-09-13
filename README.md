@@ -6,7 +6,7 @@ Addon Stremio non-officiel pour regarder les animés de [anime-sama.to](https://
 
 ## Fonctionnalités
 
-- Catalogue des animés avec affiches
+- Quatre catalogues : derniers épisodes, classiques, pépites, et la recherche
 - Détection automatique des saisons et des langues (VOSTFR / VF)
 - Extraction des liens vidéo depuis plusieurs hébergeurs
 - Contournement du blocage DNS des FAI français (hardcoded IP + servername)
@@ -245,6 +245,43 @@ https.get({ hostname: ip, servername: hostname, ... })
 > ⚠️ L'IP peut changer. Si le scraper tombe en timeout, résoudre `anime-sama.to` via DoH :
 > `curl "https://cloudflare-dns.com/dns-query?name=anime-sama.to&type=A" -H "Accept: application/dns-json"`
 
+### Catalogues et sections de l'accueil
+
+Les trois catalogues thématiques proviennent de la page d'accueil, qui contient
+tout en HTML déjà rendu — une seule requête les alimente donc tous les trois,
+mutualisée par `fetchPage()`.
+
+| Catalogue Stremio | Conteneur HTML | Entrées après filtrage |
+|---|---|---|
+| `animesama-recents` | `#containerAjoutsAnimes` | 19 |
+| `animesama-classiques` | `#containerClassiques` | 32 |
+| `animesama-pepites` | `#containerPepites` | 25 |
+
+Deux formes de cartes cohabitent sur l'accueil, d'où `estCarteAnime()` :
+
+- **carte complète** (`.catalog-card`), identique à celle du catalogue, dont le
+  type se lit dans `.info-value` ;
+- **carte compacte**, sans `.info-value` mais porteuse d'un badge explicite —
+  `.badge-text` vaut `Anime`, `Scans`, `Webtoon` ou `Manga`. Le tri y est plus
+  fiable qu'au catalogue.
+
+Les cartes compactes pointent vers `/catalogue/<slug>/<saison>/<langue>/` et non
+vers `/catalogue/<slug>`, d'où `slugDepuisHref()` qui prend le **premier** segment
+après `/catalogue/` plutôt que le dernier.
+
+Les ajouts récents listent un épisode par ligne : un même animé y apparaît
+plusieurs fois, la déduplication se fait par slug.
+
+Sections écartées volontairement : `#containerAjoutsScans` (que des webtoons et
+mangas), `#containerSorties` (57 scans sur 70) et les sept sections par jour.
+
+### Recherche
+
+La recherche a son propre catalogue, `animesama-recherche`, déclaré avec
+`isRequired: true` : il n'apparaît donc pas dans Discover et ne répond qu'à la
+barre de recherche. Il interroge `/catalogue/?search=`, seul endroit du site qui
+sache chercher — les sections de l'accueil sont des listes figées.
+
 ### Format des IDs Stremio
 
 ```
@@ -413,8 +450,7 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 
 ### P4 — Confort et robustesse
 
-- [ ] Paginer le catalogue (aujourd'hui 32 animés après filtrage, une seule page)
-- [ ] Brancher la recherche du catalogue (le manifest déclare déjà `search`)
+- [ ] Paginer la recherche, qui ne renvoie que la première page de résultats
 - [ ] Basculer le port par défaut sur une valeur libre : 7000 est occupé par le
       récepteur AirPlay sur macOS (contournement documenté dans « Utilisation en local »)
 - [ ] Traiter les 8 vulnérabilités npm (4 hautes) sans casser `puppeteer-core`
@@ -432,7 +468,8 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 - **Sendvid hors service** : ses pages embed renvoient un `502`, panne côté hébergeur
 - **Ansembed lié à l'ASN** : ses jetons ne valent que pour le réseau qui les a obtenus,
   ce qui interdit en pratique un déploiement distant
-- **Catalogue limité** : une seule page du site, 32 animés après filtrage
+- **Catalogues figés** : les sections de l'accueil comptent 19 à 32 entrées, sans
+  pagination possible ; seule la recherche donne accès au reste du site
 - **Posters manquants** : certaines affiches ne chargent pas si le CDN d'images est
   lui aussi bloqué par DNS
 - **IP hardcodée** : `104.26.12.154` pour `anime-sama.to`, à re-résoudre via DoH si

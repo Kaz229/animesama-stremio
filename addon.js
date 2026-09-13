@@ -1,9 +1,9 @@
 const { addonBuilder } = require('stremio-addon-sdk')
-const { getCatalogue, getAnimeMeta, getStreams } = require('./scraper')
+const { getCatalogue, getSectionAccueil, getAnimeMeta, getStreams } = require('./scraper')
 
 const manifest = {
   id: 'fr.animesama.stremio',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Anime-Sama',
   description: 'Regardez les animes de Anime-Sama en VOSTFR et VF directement dans Stremio.',
   logo: 'https://anime-sama.fr/favicon.ico',
@@ -13,21 +13,26 @@ const manifest = {
   catalogs: [
     {
       type: 'series',
-      id: 'animesama-vostfr',
-      name: 'Anime-Sama VOSTFR',
-      extra: [
-        { name: 'search', isRequired: false },
-        { name: 'skip', isRequired: false },
-      ],
+      id: 'animesama-recents',
+      name: 'Anime-Sama — Derniers épisodes',
     },
     {
       type: 'series',
-      id: 'animesama-vf',
-      name: 'Anime-Sama VF',
-      extra: [
-        { name: 'search', isRequired: false },
-        { name: 'skip', isRequired: false },
-      ],
+      id: 'animesama-classiques',
+      name: 'Anime-Sama — Les classiques',
+    },
+    {
+      type: 'series',
+      id: 'animesama-pepites',
+      name: 'Anime-Sama — Pépites',
+    },
+    {
+      // Catalogue dédié à la recherche : isRequired le rend invisible dans
+      // Discover, il ne répond qu'aux requêtes de la barre de recherche
+      type: 'series',
+      id: 'animesama-recherche',
+      name: 'Anime-Sama — Recherche',
+      extra: [{ name: 'search', isRequired: true }],
     },
   ],
   behaviorHints: {
@@ -39,18 +44,35 @@ const manifest = {
 const builder = new addonBuilder(manifest)
 
 // === CATALOG ===
+// Les trois catalogues thématiques proviennent des sections de la page
+// d'accueil, servies par une seule requête mutualisée. La recherche garde son
+// propre catalogue et interroge /catalogue/?search=, seul endroit du site qui
+// sache chercher.
+const SECTIONS_PAR_CATALOGUE = {
+  'animesama-recents': 'recents',
+  'animesama-classiques': 'classiques',
+  'animesama-pepites': 'pepites',
+}
+
 builder.defineCatalogHandler(async ({ type, id, extra }) => {
   if (type !== 'series') return { metas: [] }
 
   const search = extra?.search || ''
-  const skip = parseInt(extra?.skip || '0')
 
   try {
-    const metas = await getCatalogue(search, '', skip)
+    if (search) {
+      const metas = await getCatalogue(search)
+      return { metas, cacheMaxAge: 600 }
+    }
+
+    const section = SECTIONS_PAR_CATALOGUE[id]
+    if (!section) return { metas: [] }
+
+    const metas = await getSectionAccueil(section)
     // Borne la rétention côté Stremio, qui garderait sinon un catalogue périmé
     return { metas, cacheMaxAge: 600 }
   } catch (err) {
-    console.error('[catalog] Erreur:', err.message)
+    console.error(`[catalog] Erreur (${id}):`, err.message)
     return { metas: [] }
   }
 })
