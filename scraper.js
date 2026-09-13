@@ -305,6 +305,28 @@ async function extractStreamUrl(embedUrl) {
 }
 
 // Récupère les streams pour un épisode donné
+// Hébergeurs qui refusent la requête sans le Referer de leur page embed.
+// Pour eux seulement on passe notWebReady + proxyHeaders, ce qui fait relayer
+// le flux par le serveur interne de Stremio. Les autres — Ansembed en tête —
+// servent leurs segments sans condition : les proxifier priverait le lecteur
+// de la lecture HLS native pour rien.
+const HEBERGEURS_AVEC_REFERER = ['sibnet.ru']
+
+function construireBehaviorHints(embedUrl) {
+  if (!HEBERGEURS_AVEC_REFERER.some(h => embedUrl.includes(h))) {
+    return { notWebReady: false }
+  }
+  return {
+    notWebReady: true,
+    proxyHeaders: {
+      request: {
+        'Referer': embedUrl,
+        'User-Agent': headers['User-Agent'],
+      },
+    },
+  }
+}
+
 async function getStreams(slug, season, episode, lang = 'vostfr') {
   const episodes = await getEpisodes(slug, season, lang)
   const ep = episodes.find(e => e.episode === episode)
@@ -321,18 +343,7 @@ async function getStreams(slug, season, episode, lang = 'vostfr') {
       url,
       name: `AnimeSama ${lang.toUpperCase()}`,
       title: `${name} — Ep. ${episode}`,
-      behaviorHints: {
-        // notWebReady est obligatoire pour que Stremio honore proxyHeaders
-        notWebReady: true,
-        proxyHeaders: {
-          request: {
-            // Les hébergeurs refusent la requête sans le Referer de leur page embed
-            // (Sibnet renvoie 400 sans Referer, 403 avec celui d'anime-sama)
-            'Referer': embedUrl,
-            'User-Agent': headers['User-Agent'],
-          },
-        },
-      },
+      behaviorHints: construireBehaviorHints(embedUrl),
     })
   }
 

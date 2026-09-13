@@ -17,18 +17,32 @@ Addon Stremio non-officiel pour regarder les animés de [anime-sama.to](https://
 
 ### Hébergeurs supportés
 
-Fréquence mesurée sur un échantillon de 12 animés (épisode 1 VOSTFR) :
+Taux d'extraction mesuré sur 10 URLs embed par hébergeur :
 
-| Hébergeur | Extraction | Présence |
-|-----------|-----------|----------|
-| **Sibnet** | ✅ MP4 via redirection signée | 7 / 12 |
-| **Ansembed** | ✅ HLS m3u8 | 2 / 12 |
-| **Sendvid** | ✅ MP4 direct | 1 / 12 |
-| **Streamtape** | ✅ MP4 (regex JS) | non rencontré |
-| **Lpayer (embed4me.com)** | ❌ Non fonctionnel | 2 / 12 |
+| Hébergeur | Extraction | Format livré | Referer exigé |
+|-----------|-----------|--------------|---------------|
+| **Sibnet** | 10/10 | MP4 après redirection signée | **oui** — 400 sans |
+| **Ansembed** | 10/10 | HLS m3u8 | non |
+| **Sendvid** | 0/10 | — | — (hébergeur en 502) |
+| **Streamtape** | non rencontré | MP4 (regex JS) | — |
+| **Lpayer (embed4me.com)** | ❌ | — | — |
 
-> Lpayer touche plus de titres que prévu : Fairy Tail et Dragon Ball Z, que ce README
-> annonçait en Vidmoly, sont désormais servis exclusivement par lpayer.
+> Sendvid répond actuellement `502` sur ses pages embed : la panne est chez
+> l'hébergeur, l'extracteur n'est pas en cause.
+
+### En-têtes par hébergeur
+
+Seul Sibnet refuse la requête sans le `Referer` de sa page embed. Lui seul reçoit donc
+`notWebReady: true` + `proxyHeaders`, qui font relayer le flux par le serveur interne
+de Stremio.
+
+Appliquer ce drapeau à tout le monde pénalisait Ansembed : son HLS (master, variantes,
+44 segments) transitait par le proxy alors qu'il se sert sans aucun en-tête — master,
+variante et segment répondent `200` sans `Referer`. Les hébergeurs sans contrainte
+gardent `notWebReady: false` et sont lus nativement.
+
+Les jetons Ansembed sont valides 12 h et liés à l'ASN appelant (`asn=` dans l'URL),
+ce qui les rend inutilisables depuis un réseau différent de celui qui les a obtenus.
 
 ### Problème lpayer (TODO principal)
 
