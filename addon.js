@@ -3,7 +3,7 @@ const { getCatalogue, getAnimeMeta, getStreams } = require('./scraper')
 
 const manifest = {
   id: 'fr.animesama.stremio',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Anime-Sama',
   description: 'Regardez les animes de Anime-Sama en VOSTFR et VF directement dans Stremio.',
   logo: 'https://anime-sama.fr/favicon.ico',
@@ -47,7 +47,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
 
   try {
     const metas = await getCatalogue(search, '', skip)
-    return { metas }
+    // Borne la rétention côté Stremio, qui garderait sinon un catalogue périmé
+    return { metas, cacheMaxAge: 600 }
   } catch (err) {
     console.error('[catalog] Erreur:', err.message)
     return { metas: [] }
@@ -93,7 +94,7 @@ builder.defineMetaHandler(async ({ type, id }) => {
       videos: videos.slice(0, 2000), // limite raisonnable
     }
 
-    return { meta }
+    return { meta, cacheMaxAge: 600 }
   } catch (err) {
     console.error('[meta] Erreur:', err.message)
     return { meta: null }

@@ -187,7 +187,9 @@ async function getAnimeMeta(slug) {
   let pm
   while ((pm = panneauRegex.exec(html)) !== null) {
     const path = pm[1] // ex: "saison1/vostfr"
-    const m = path.match(/saison(\d+)\/(vostfr|vf|vkr|scan)/i)
+    // Langues vidéo uniquement : 'scan' exposerait des chapitres de manga
+    // comme épisodes (le site déclare aussi panneauAnime("Scans", "scan/vf"))
+    const m = path.match(/saison(\d+)\/(vostfr|vf|vkr)$/i)
     if (!m) continue
     const num = parseInt(m[1])
     const lang = m[2].toLowerCase()
@@ -238,7 +240,15 @@ function parseEpisodesJs(jsContent) {
 }
 
 // Récupère les épisodes d'une saison
+const LANGUES_VIDEO = ['vostfr', 'vf', 'vkr']
+
 async function getEpisodes(slug, season, lang = 'vostfr') {
+  // Empêche de composer une URL vers la section scans (chapitres de manga)
+  if (!LANGUES_VIDEO.includes(String(lang).toLowerCase())) {
+    console.warn(`[scraper] langue non vidéo ignorée : ${lang}`)
+    return []
+  }
+
   const key = `eps:${slug}:${season}:${lang}`
   const cached = getCached(key)
   if (cached) return cached
