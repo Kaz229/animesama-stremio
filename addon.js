@@ -65,6 +65,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
   if (type !== 'series') return { metas: [] }
 
   const search = extra?.search || ''
+  console.log(`[catalog] ${id}${search ? ` search="${search}"` : ''}`)
 
   try {
     // La recherche n'est servie que par son catalogue dédié : y répondre
