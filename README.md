@@ -17,13 +17,18 @@ Addon Stremio non-officiel pour regarder les animés de [anime-sama.to](https://
 
 ### Hébergeurs supportés
 
-| Hébergeur | Extraction | Exemples d'animés |
-|-----------|-----------|-------------------|
-| **Sibnet** | ✅ MP4 direct | SAO, One Piece ep.1 |
-| **Ansembed / Vidmoly** | ✅ HLS m3u8 | One Piece, Dragon Ball Z, Fairy Tail |
-| **Streamtape** | ✅ MP4 (regex JS) | Selon l'animé |
-| **Sendvid** | ✅ MP4 direct | Selon l'animé |
-| **Lpayer (embed4me.com)** | ❌ Non fonctionnel | Naruto, Bleach, 07 Ghost |
+Fréquence mesurée sur un échantillon de 12 animés (épisode 1 VOSTFR) :
+
+| Hébergeur | Extraction | Présence |
+|-----------|-----------|----------|
+| **Sibnet** | ✅ MP4 via redirection signée | 7 / 12 |
+| **Ansembed** | ✅ HLS m3u8 | 2 / 12 |
+| **Sendvid** | ✅ MP4 direct | 1 / 12 |
+| **Streamtape** | ✅ MP4 (regex JS) | non rencontré |
+| **Lpayer (embed4me.com)** | ❌ Non fonctionnel | 2 / 12 |
+
+> Lpayer touche plus de titres que prévu : Fairy Tail et Dragon Ball Z, que ce README
+> annonçait en Vidmoly, sont désormais servis exclusivement par lpayer.
 
 ### Problème lpayer (TODO principal)
 
@@ -179,21 +184,92 @@ var eps2 = ['url1', 'url2'];          // épisode 2
 
 ---
 
-## Problèmes connus
+## Feuille de route
 
-- **Lpayer** : aucune URL vidéo extraite (voir section ci-dessus)
-- **Catalogue limité** : le scraper récupère ~48 animés par page, sans pagination automatique
-- **Épisodes générés à la volée** : le handler meta génère 2000 faux épisodes par saison/langue. Les épisodes inexistants retournent `[]` côté stream (pas idéal mais fonctionnel)
-- **Posters manquants** : certaines affiches ne chargent pas si le CDN d'images est aussi bloqué par DNS
-- **Port occupé** : si le serveur crash et redémarre, utiliser `netstat -ano | grep 7000` puis `taskkill /F /PID {pid}` pour libérer le port 7000
+### ✅ P1 — Filtrer le catalogue pour n'afficher que les animés — fait
+
+Le site mélange animés et **scans** (mangas à lire) dans `/catalogue/`. Le scraper prenait
+tous les liens `/catalogue/<slug>/` sans distinction, donc Stremio affichait des mangas
+dépourvus d'épisode vidéo.
+
+Le type se lit dans le premier `.info-value` de chaque `.catalog-card` :
+
+```html
+<div class="catalog-card">
+  <a href="https://anime-sama.to/catalogue/07-ghost">
+    <p class="info-value">Anime, Scans</p>
+```
+
+`getCatalogue()` itère désormais sur `.catalog-card` et ne garde que les types contenant
+`Anime` ou `Film`. Un repli sur l'ancien sélecteur reste en place si la mise en page change.
+
+**Résultat : 48 → 32 entrées**, les 16 cartes `Scans` seules sont exclues.
+
+### ✅ P2 — Corriger la lecture (spinner infini) — fait
+
+Symptôme : l'animé s'affichait, mais au lancement le logo Stremio tournait en boucle.
+
+**Cause.** `extractSibnet()` renvoie l'URL brute `video.sibnet.ru/v/<hash>/<id>.mp4`,
+qui n'est pas jouable telle quelle. Sibnet exige le `Referer` de sa page embed :
+
+```
+Referer absent                                          → HTTP 400
+Referer: https://anime-sama.to/                         → HTTP 403
+Referer: https://video.sibnet.ru/shell.php?videoid=<id> → HTTP 302 → URL signée
+```
+
+Stremio requêtait sans `Referer`, recevait un 400, et tournait indéfiniment.
+
+**Correctif.** `getStreams()` pose maintenant sur chaque stream :
+
+```js
+behaviorHints: {
+  notWebReady: true,          // obligatoire pour que Stremio honore proxyHeaders
+  proxyHeaders: {
+    request: { 'Referer': embedUrl, 'User-Agent': ... },
+  },
+}
+```
+
+L'URL embed d'anime-sama est exactement le `Referer` attendu par l'hébergeur, aucune
+reconstruction n'est nécessaire.
+
+**Vérifié** : requête initiale → `302`, suivi de redirection → `HTTP 206`, `video/mp4`,
+400 Ko de MP4 valide téléchargés. Ansembed répond `200` avec une playlist HLS 1080p/480p.
+
+> L'URL signée Sibnet porte `noip=1` et expire vite : la résoudre côté serveur
+> fonctionnerait en local mais casserait sur un déploiement distant. D'où `proxyHeaders`,
+> qui laisse le lecteur faire la requête lui-même.
+
+### P3 — Extraction lpayer
+
+Toujours bloquée, voir la section « Problème lpayer » plus haut.
+Affecte Naruto, Bleach, 07 Ghost, etc.
+
+- [ ] Analyser le bundle `prod-CbREaqWl.js` pour trouver la génération du token
+- [ ] Ou monkey-patcher `fetch` avant chargement pour capturer `/api/v1/player`
+
+### P4 — Confort et robustesse
+
+- [ ] Paginer le catalogue (aujourd'hui ~48 animés, une seule page)
+- [ ] Persister le nombre réel d'épisodes par saison plutôt que d'en générer 2000
+- [ ] Brancher la recherche du catalogue (le manifest déclare déjà `search`)
+- [ ] Rendre le port configurable proprement : 7000 est occupé par le récepteur AirPlay
+      sur macOS, l'addon tourne actuellement via `PORT=7010 node index.js`
+- [ ] Traiter les 8 vulnérabilités npm (4 hautes) sans casser `puppeteer-core`
+- [ ] Retirer `axios` et `dns2` du `package.json`, tous deux inutilisés
+- [ ] Containeriser avec Docker
+- [ ] Déployer sur un serveur public (Railway, Render) pour ne plus dépendre d'un PC allumé
 
 ---
 
-## Pistes d'amélioration
+## Problèmes connus
 
-- [ ] Résoudre l'extraction lpayer (affecter Naruto, Bleach, 07 Ghost, etc.)
-- [ ] Paginer le catalogue pour récupérer tous les animés
-- [ ] Persister le nombre d'épisodes réels par saison (plutôt que générer 500 par défaut)
-- [ ] Ajouter la recherche dans le catalogue (endpoint `?search=`)
-- [ ] Containeriser avec Docker pour faciliter le déploiement
-- [ ] Déployer sur un serveur public (Railway, Render, etc.) pour ne pas nécessiter un PC allumé
+- **Lpayer** : aucune URL vidéo extraite (P3)
+- **Catalogue limité** : ~48 animés, sans pagination automatique
+- **Épisodes générés à la volée** : le handler meta génère 2000 faux épisodes par
+  saison/langue ; les épisodes inexistants retournent `[]` côté stream
+- **Posters manquants** : certaines affiches ne chargent pas si le CDN d'images est
+  lui aussi bloqué par DNS
+- **IP hardcodée** : `104.26.12.154` pour `anime-sama.to`, à re-résoudre via DoH si
+  le scraper tombe en timeout

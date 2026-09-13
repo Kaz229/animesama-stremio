@@ -74,6 +74,38 @@ async function fetchPage(url) {
   return data
 }
 
+// Types de contenu à conserver dans le catalogue.
+// Le site mélange animés et scans (mangas à lire) ; seuls les premiers ont des épisodes.
+const TYPES_VIDEO = ['anime', 'film']
+
+// Lit le type d'une carte du catalogue (`<p class="info-value">Anime, Scans</p>`)
+// et dit si elle correspond à du contenu regardable.
+function estContenuVideo($card) {
+  const brut = $card.find('.info-value').first().text().trim().toLowerCase()
+  // Pas de marqueur : on garde la carte plutôt que de perdre un animé valide
+  if (!brut) return true
+  const types = brut.split(',').map(t => t.trim())
+  return types.some(t => TYPES_VIDEO.includes(t))
+}
+
+// Extrait le slug d'un lien de fiche, ou null si le lien ne pointe pas vers une fiche
+function slugDepuisHref(href) {
+  const match = (href || '').match(/\/catalogue\/([^/]+)\/?$/)
+  if (!match) return null
+  const slug = match[1]
+  return slug && slug !== 'catalogue' ? slug : null
+}
+
+function versEntree(slug, title, poster) {
+  return {
+    id: `as:${slug}`,
+    type: 'series',
+    name: title,
+    poster: poster.startsWith('http') ? poster : BASE_URL + poster,
+    slug,
+  }
+}
+
 // Récupère la liste des animes du catalogue
 async function getCatalogue(search = '', genre = '', skip = 0) {
   let url = CATALOGUE_URL
@@ -83,29 +115,36 @@ async function getCatalogue(search = '', genre = '', skip = 0) {
   const $ = cheerio.load(html)
   const results = []
 
-  $('a[href*="/catalogue/"]').each((_, el) => {
-    const href = $(el).attr('href') || ''
-    // Exclure les liens qui ne pointent pas vers une fiche anime (ex: /catalogue/ seul)
-    const match = href.match(/\/catalogue\/([^/]+)\/?$/)
-    if (!match) return
+  const cards = $('.catalog-card')
 
-    const slug = match[1]
-    if (slug === '' || slug === 'catalogue') return
+  if (cards.length) {
+    cards.each((_, el) => {
+      const $card = $(el)
+      const slug = slugDepuisHref($card.find('a[href*="/catalogue/"]').first().attr('href'))
+      if (!slug) return
+      if (!estContenuVideo($card)) return
 
-    const img = $(el).find('img')
-    const title = img.attr('alt') || $(el).text().trim()
-    const poster = img.attr('src') || img.attr('data-src') || ''
+      const img = $card.find('img').first()
+      const title = (img.attr('alt') || $card.find('.card-title').first().text() || '').trim()
+      const poster = img.attr('src') || img.attr('data-src') || ''
 
-    if (title && slug) {
-      results.push({
-        id: `as:${slug}`,
-        type: 'series',
-        name: title,
-        poster: poster.startsWith('http') ? poster : BASE_URL + poster,
-        slug,
-      })
-    }
-  })
+      if (title) results.push(versEntree(slug, title, poster))
+    })
+  } else {
+    // Repli si la mise en page du site change : on reprend tous les liens de fiche,
+    // sans filtrage de type possible
+    console.warn('[scraper] aucune .catalog-card trouvée, repli sur les liens bruts')
+    $('a[href*="/catalogue/"]').each((_, el) => {
+      const slug = slugDepuisHref($(el).attr('href'))
+      if (!slug) return
+
+      const img = $(el).find('img')
+      const title = (img.attr('alt') || $(el).text() || '').trim()
+      const poster = img.attr('src') || img.attr('data-src') || ''
+
+      if (title) results.push(versEntree(slug, title, poster))
+    })
+  }
 
   // Déduplique par slug
   const seen = new Set()
@@ -246,7 +285,18 @@ async function getStreams(slug, season, episode, lang = 'vostfr') {
       url,
       name: `AnimeSama ${lang.toUpperCase()}`,
       title: `${name} — Ep. ${episode}`,
-      behaviorHints: { notWebReady: false },
+      behaviorHints: {
+        // notWebReady est obligatoire pour que Stremio honore proxyHeaders
+        notWebReady: true,
+        proxyHeaders: {
+          request: {
+            // Les hébergeurs refusent la requête sans le Referer de leur page embed
+            // (Sibnet renvoie 400 sans Referer, 403 avec celui d'anime-sama)
+            'Referer': embedUrl,
+            'User-Agent': headers['User-Agent'],
+          },
+        },
+      },
     })
   }
 
@@ -254,6 +304,7 @@ async function getStreams(slug, season, episode, lang = 'vostfr') {
 }
 
 function getPlayerName(url) {
+  if (url.includes('ansembed')) return 'Ansembed'
   if (url.includes('sendvid')) return 'Sendvid'
   if (url.includes('sibnet')) return 'Sibnet'
   if (url.includes('vidmoly')) return 'Vidmoly'
