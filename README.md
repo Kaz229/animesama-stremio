@@ -86,15 +86,19 @@ Stremio → addon.js (handler stream)
 
 ---
 
-## Installation et lancement
+## Utilisation en local
 
-### Prérequis
+C'est le mode d'emploi recommandé, et celui pour lequel l'addon a été écrit.
+Le déploiement sur un serveur public a des limites réelles, détaillées plus bas.
+
+### 1. Prérequis
 
 - Node.js >= 18
-- Google Chrome installé (pour l'extracteur lpayer, non fonctionnel actuellement)
 - npm
+- Google Chrome, uniquement pour l'extracteur lpayer — qui ne fonctionne pas
+  aujourd'hui, donc facultatif en pratique
 
-### Installation
+### 2. Installation
 
 ```bash
 git clone https://github.com/Kaz229/animesama-stremio.git
@@ -102,20 +106,122 @@ cd animesama-stremio
 npm install
 ```
 
-### Lancement
+### 3. Choix du port
+
+Le port par défaut est 7000, mais **sur macOS il est occupé par le récepteur
+AirPlay** (`ControlCenter`). Vérifier avant de lancer :
 
 ```bash
-node index.js
+lsof -i tcp:7000          # macOS / Linux
 ```
 
-Le serveur démarre sur `http://localhost:7000`.
+Si quelque chose écoute déjà, ne pas tuer le processus : passer un autre port,
+`index.js` lit `process.env.PORT`.
 
-### Ajouter dans Stremio
+```bash
+PORT=7010 node index.js
+```
+
+Le serveur affiche l'URL du manifest au démarrage. Vérifier qu'il répond :
+
+```bash
+curl -s http://localhost:7010/manifest.json | head -c 120
+```
+
+### 4. Ajouter l'addon dans Stremio, sur la machine qui héberge le serveur
 
 1. Ouvrir Stremio
-2. Aller dans **Paramètres → Addons → Addon communautaire**
-3. Entrer l'URL : `http://localhost:7000/manifest.json`
-4. Cliquer sur "Installer"
+2. **Paramètres → Addons → Addon communautaire**
+3. Coller `http://localhost:7010/manifest.json`
+4. Installer
+
+### 5. Utiliser l'addon depuis vos autres appareils
+
+Stremio rattache la liste des addons à **votre compte** : l'addon installé sur
+le PC apparaît tout seul sur la tablette, le téléphone et la TV connectés au
+même compte.
+
+Mais l'URL, elle, ne se traduit pas. `localhost` signifie « cette machine-ci » :
+pour la TV, cela désigne la TV, où rien n'écoute. **L'addon sera listé partout
+et ne fonctionnera que sur la machine hôte.**
+
+Pour que les autres appareils l'atteignent réellement, enregistrer l'addon avec
+l'adresse de la machine sur le réseau local plutôt qu'avec `localhost` :
+
+```bash
+ipconfig getifaddr en0                      # macOS
+hostname -I | awk '{print $1}'              # Linux
+ipconfig | findstr IPv4                     # Windows
+```
+
+Puis installer `http://192.168.1.42:7010/manifest.json` (avec votre adresse).
+Le serveur écoute déjà sur toutes les interfaces, il n'y a rien à changer dans
+le code.
+
+Quatre conditions pour que cela marche :
+
+- tous les appareils sur le **même réseau** local ;
+- la machine hôte **allumée et non endormie** tant que vous regardez ;
+- l'adresse IP locale **stable** — la réserver dans la box, sinon le DHCP peut
+  l'attribuer ailleurs et l'addon cessera de répondre ;
+- si l'URL change, **désinstaller puis réinstaller** l'addon dans Stremio.
+
+### 6. En cas de problème
+
+| Symptôme | Cause probable |
+|---|---|
+| `EADDRINUSE` au démarrage | Port déjà pris — en choisir un autre via `PORT=` |
+| Le catalogue est vide, timeouts dans les logs | L'IP codée en dur d'anime-sama a changé, voir « Contournement DNS » |
+| Des mangas apparaissent encore | Catalogue mémorisé par Stremio — désinstaller et réinstaller l'addon |
+| Un épisode ne démarre pas | Essayer une autre source ; lpayer n'est pas extractible et Sendvid est en panne |
+
+---
+
+## Déploiement sur un serveur public — à lire avant
+
+Le code est prêt techniquement : `index.js` lit `process.env.PORT`, ce qu'attendent
+Railway, Render et consorts. Mais quatre points doivent être pesés d'abord.
+
+### Ansembed cessera probablement de fonctionner
+
+C'est la limite la plus concrète. Les URLs HLS d'Ansembed portent un jeton lié à
+**l'ASN du réseau qui l'a demandé** (`asn=` dans l'URL), valable 12 h.
+
+L'addon récupère ce jeton depuis le serveur. Hébergé à distance, c'est l'ASN du
+datacenter qui est gravé dans l'URL, alors que votre lecteur, lui, est chez votre
+opérateur. Le flux a toutes les chances d'être refusé.
+
+Sibnet n'a pas ce problème : l'addon ne renvoie qu'une URL statique, et c'est le
+lecteur qui déclenche la redirection signée depuis son propre réseau.
+
+Un déploiement distant fait donc perdre Ansembed et garder Sibnet — la majorité du
+catalogue d'après l'échantillon mesuré, mais pas la totalité.
+
+### Stremio Web exige du HTTPS
+
+Les applications desktop, mobile et TV acceptent un addon en HTTP simple.
+`web.stremio.com` non : il faut un certificat valide. La plupart des hébergeurs en
+fournissent un automatiquement.
+
+### L'addon n'a aucune authentification
+
+Toute personne connaissant l'URL peut l'installer et s'en servir. Il n'y a ni jeton,
+ni restriction d'origine, ni limite de débit. Sachant que le contenu servi provient
+d'un site de streaming illégal, exposer publiquement cette URL n'engage pas la même
+responsabilité que de faire tourner l'addon chez soi pour son propre usage.
+
+### Le contournement DNS devient inutile
+
+L'IP codée en dur existe parce que les FAI français bloquent `anime-sama.to`.
+Sur un serveur à l'étranger la résolution DNS fonctionne normalement : le
+contournement reste inoffensif, mais c'est une IP figée de plus à surveiller.
+
+### Si vous déployez quand même
+
+- ne rien coder en dur : laisser l'hébergeur fournir `PORT` ;
+- garder le cache mémoire tel quel — il s'efface à chaque redémarrage, ce qui est
+  sans gravité ;
+- surveiller `DNS_MAP` dans `scraper.js`, seul point qui casse silencieusement.
 
 ---
 
@@ -309,18 +415,23 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 
 - [ ] Paginer le catalogue (aujourd'hui 32 animés après filtrage, une seule page)
 - [ ] Brancher la recherche du catalogue (le manifest déclare déjà `search`)
-- [ ] Rendre le port configurable proprement : 7000 est occupé par le récepteur AirPlay
-      sur macOS, l'addon tourne actuellement via `PORT=7010 node index.js`
+- [ ] Basculer le port par défaut sur une valeur libre : 7000 est occupé par le
+      récepteur AirPlay sur macOS (contournement documenté dans « Utilisation en local »)
 - [ ] Traiter les 8 vulnérabilités npm (4 hautes) sans casser `puppeteer-core`
 - [ ] Retirer `axios` et `dns2` du `package.json`, tous deux inutilisés
 - [ ] Containeriser avec Docker
-- [ ] Déployer sur un serveur public (Railway, Render) pour ne plus dépendre d'un PC allumé
+- [ ] Déployer sur un serveur public (Railway, Render) pour ne plus dépendre d'un PC
+      allumé — lire d'abord « Déploiement sur un serveur public », Ansembed y perd
+      probablement sa lecture
 
 ---
 
 ## Problèmes connus
 
 - **Lpayer** : aucune URL vidéo extraite (P3)
+- **Sendvid hors service** : ses pages embed renvoient un `502`, panne côté hébergeur
+- **Ansembed lié à l'ASN** : ses jetons ne valent que pour le réseau qui les a obtenus,
+  ce qui interdit en pratique un déploiement distant
 - **Catalogue limité** : une seule page du site, 32 animés après filtrage
 - **Posters manquants** : certaines affiches ne chargent pas si le CDN d'images est
   lui aussi bloqué par DNS
