@@ -64,22 +64,19 @@ builder.defineMetaHandler(async ({ type, id }) => {
   try {
     const animeData = await getAnimeMeta(slug)
 
-    // Construit les videos (épisodes) pour l'interface Stremio
-    // Stremio utilise season/episode pour identifier les épisodes
+    // Construit les épisodes pour l'interface Stremio.
+    // Le nombre d'épisodes vient désormais d'episodes.js, plus besoin d'en
+    // générer un lot arbitraire dont l'essentiel ne renvoyait aucun stream.
     const videos = []
     for (const season of animeData.seasons) {
       for (const lang of season.langs) {
-        // On génère une entrée par épisode (si on connaît le nombre)
-        // Stremio peut aussi découvrir les épisodes dynamiquement
-        for (let ep = 1; ep <= 500; ep++) {
+        for (let ep = 1; ep <= lang.episodes; ep++) {
           videos.push({
-            id: `${id}:${season.num}:${ep}:${lang}`,
-            title: `S${season.num} E${ep} ${lang.toUpperCase()}`,
+            id: `${id}:${season.num}:${ep}:${lang.code}`,
+            title: `S${season.num} E${ep} ${lang.code.toUpperCase()}`,
             season: season.num,
             episode: ep,
           })
-          // On arrête à 500 par saison, les streams inexistants retourneront []
-          if (ep === 500) break
         }
       }
     }
@@ -91,7 +88,7 @@ builder.defineMetaHandler(async ({ type, id }) => {
       description: animeData.description,
       poster: animeData.poster,
       genres: animeData.genres,
-      videos: videos.slice(0, 2000), // limite raisonnable
+      videos,
     }
 
     return { meta, cacheMaxAge: 600 }

@@ -143,12 +143,26 @@ Le scraper parse ce pattern avec une regex sur le HTML brut.
 
 ### Format episodes.js
 
+Piège : `eps<N>` ne désigne **pas** l'épisode N mais **l'hébergeur N**. Chaque tableau
+liste tous les épisodes de la saison chez cet hébergeur, indexés par position.
+
 ```js
-var eps1 = ['url1', 'url2', 'url3'];  // épisode 1
-var eps2 = ['url1', 'url2'];          // épisode 2
+var eps1 = ['lpayer/ep1', 'lpayer/ep2', 'lpayer/ep3', ...];  // hébergeur 1
+var eps2 = ['sibnet/ep1', 'sibnet/ep2', 'sibnet/ep3', ...];  // hébergeur 2
 ```
 
-`eps{N}` = épisode N, les URLs sont les différents hébergeurs disponibles.
+L'épisode N est donc la **colonne** N : `[eps1[N-1], eps2[N-1], ...]`.
+Le nombre d'épisodes de la saison est la longueur du tableau le plus complet.
+
+Certaines saisons annoncées mais non publiées contiennent des gabarits vides
+(`shell.php?videoid=`, `embed-.html`, `sendvid.com/embed/`, `oid=&hd=3`) : ils sont
+écartés par `estUrlExploitable()`, ce qui fait disparaître la saison si elle est vide.
+
+### Langues disponibles
+
+La fiche ne déclare que la VOSTFR via `panneauAnime`. La VF existe pour beaucoup de
+titres sans apparaître dans le HTML : elle est découverte en sondant
+`saison{N}/{langue}/episodes.js`, dont le résultat est mis en cache.
 
 ### Extraction Ansembed (Vidmoly)
 
@@ -241,6 +255,34 @@ reconstruction n'est nécessaire.
 > fonctionnerait en local mais casserait sur un déploiement distant. D'où `proxyHeaders`,
 > qui laisse le lecteur faire la requête lui-même.
 
+### ✅ P5 — Numérotation des épisodes — fait
+
+Symptôme : les trois « sources » proposées pour l'épisode 1 étaient en réalité
+les épisodes 1, 2 et 3.
+
+`parseEpisodesJs()` prenait `eps<N>` pour l'épisode N et ses URLs pour autant
+d'hébergeurs. C'est l'inverse (voir « Format episodes.js »). Le parseur transpose
+désormais la matrice.
+
+**Vérifié** : 07 Ghost 25 épisodes (au lieu de 5), Sword Art Online 25, Naruto 220.
+SAO S1 E1/E5/E12 pointent bien sur trois vidéos distinctes.
+
+Effet de bord bienvenu : le nombre réel d'épisodes est maintenant connu, donc le
+handler meta ne génère plus 500 épisodes fictifs par saison plafonnés à 2000.
+
+### ✅ P6 — Version française — fait
+
+Symptôme : seule la VOSTFR fonctionnait, la VF renvoyait toujours sur la VOSTFR.
+
+Rien n'exposait la VF : la fiche ne déclare que `saison{N}/vostfr`, et le handler meta
+ne générait donc que des épisodes VOSTFR. La VF existe pourtant côté site.
+`getAnimeMeta()` sonde maintenant chaque langue de `LANGUES_VIDEO` et ne retient que
+celles qui répondent.
+
+**Vérifié** : Naruto 220 épisodes en VF et 220 en VOSTFR ; One Piece 2305 entrées sur
+19 combinaisons saison/langue ; 07 Ghost reste en VOSTFR seule, sa VF renvoyant un 404.
+Lecture d'un stream VF confirmée : `HTTP 206`, `video/mp4`, 300 Ko.
+
 ### P3 — Extraction lpayer
 
 Toujours bloquée, voir la section « Problème lpayer » plus haut.
@@ -251,8 +293,7 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 
 ### P4 — Confort et robustesse
 
-- [ ] Paginer le catalogue (aujourd'hui ~48 animés, une seule page)
-- [ ] Persister le nombre réel d'épisodes par saison plutôt que d'en générer 2000
+- [ ] Paginer le catalogue (aujourd'hui 32 animés après filtrage, une seule page)
 - [ ] Brancher la recherche du catalogue (le manifest déclare déjà `search`)
 - [ ] Rendre le port configurable proprement : 7000 est occupé par le récepteur AirPlay
       sur macOS, l'addon tourne actuellement via `PORT=7010 node index.js`
@@ -266,9 +307,7 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 ## Problèmes connus
 
 - **Lpayer** : aucune URL vidéo extraite (P3)
-- **Catalogue limité** : ~48 animés, sans pagination automatique
-- **Épisodes générés à la volée** : le handler meta génère 2000 faux épisodes par
-  saison/langue ; les épisodes inexistants retournent `[]` côté stream
+- **Catalogue limité** : une seule page du site, 32 animés après filtrage
 - **Posters manquants** : certaines affiches ne chargent pas si le CDN d'images est
   lui aussi bloqué par DNS
 - **IP hardcodée** : `104.26.12.154` pour `anime-sama.to`, à re-résoudre via DoH si

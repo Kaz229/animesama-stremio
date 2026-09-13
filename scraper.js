@@ -181,25 +181,30 @@ async function getAnimeMeta(slug) {
     if (g) genres.push(g)
   })
 
-  // Détecte les saisons via panneauAnime("Saison 1", "saison1/vostfr") dans le JS de la page
-  const seasons = []
+  // Détecte les saisons via panneauAnime("Saison 1", "saison1/vostfr")
+  // dans le JS de la page. Les sections scan/vf, film/vostfr, oav/vostfr,
+  // saison1hs/vostfr et kai/vostfr ne sont volontairement pas retenues.
+  const numeros = new Set()
   const panneauRegex = /panneauAnime\s*\(\s*["'][^"']*["']\s*,\s*["']([^"']+)["']\s*\)/g
   let pm
   while ((pm = panneauRegex.exec(html)) !== null) {
-    const path = pm[1] // ex: "saison1/vostfr"
-    // Langues vidéo uniquement : 'scan' exposerait des chapitres de manga
-    // comme épisodes (le site déclare aussi panneauAnime("Scans", "scan/vf"))
-    const m = path.match(/saison(\d+)\/(vostfr|vf|vkr)$/i)
-    if (!m) continue
-    const num = parseInt(m[1])
-    const lang = m[2].toLowerCase()
-    const existing = seasons.find(s => s.num === num)
-    if (existing) {
-      if (!existing.langs.includes(lang)) existing.langs.push(lang)
-    } else {
-      seasons.push({ num, langs: [lang] })
-    }
+    const m = pm[1].match(/^saison(\d+)\/(vostfr|vf|vkr)$/i)
+    if (m) numeros.add(parseInt(m[1]))
   }
+
+  // La fiche ne déclare que la VOSTFR : la VF existe pour beaucoup de titres
+  // mais n'apparaît nulle part dans le HTML. On la découvre en sondant
+  // saison{N}/{langue}/episodes.js, dont le résultat est mis en cache.
+  const seasons = await Promise.all(
+    [...numeros].sort((a, b) => a - b).map(async num => {
+      const langs = []
+      for (const code of LANGUES_VIDEO) {
+        const eps = await getEpisodes(slug, num, code).catch(() => [])
+        if (eps.length) langs.push({ code, episodes: eps.length })
+      }
+      return { num, langs }
+    })
+  )
 
   const meta = {
     id: `as:${slug}`,
@@ -209,37 +214,58 @@ async function getAnimeMeta(slug) {
     poster: poster.startsWith('http') ? poster : (poster ? BASE_URL + poster : ''),
     genres,
     slug,
-    seasons: seasons.sort((a, b) => a.num - b.num),
+    seasons: seasons.filter(s => s.langs.length),
   }
 
   setCache(`meta:${slug}`, meta)
   return meta
 }
 
-// Parse episodes.js — format : var eps1 = ['url1','url2']; var eps2 = [...]
+// Parse episodes.js.
+//
+// Contrairement à ce que le nom des variables laisse croire, `eps<N>` ne
+// désigne pas l'épisode N mais **l'hébergeur N** : chaque tableau liste tous
+// les épisodes de la saison chez cet hébergeur, indexés par position.
+//
+//   var eps1 = ['lpayer/ep1', 'lpayer/ep2', ...]   // hébergeur 1
+//   var eps2 = ['sibnet/ep1', 'sibnet/ep2', ...]   // hébergeur 2
+//
+// L'épisode N est donc la colonne N : [eps1[N-1], eps2[N-1], ...].
+// Certaines saisons annoncées mais non publiées contiennent des gabarits
+// vides : https://video.sibnet.ru/shell.php?videoid=, .../embed-.html,
+// https://sendvid.com/embed/, https://vk.com/video_ext.php?oid=&hd=3
+function estUrlExploitable(u) {
+  if (!u || !u.startsWith('http')) return false
+  if (/[=/]$/.test(u)) return false      // identifiant absent en fin d'URL
+  if (/=&/.test(u)) return false         // paramètre vide suivi d'un autre
+  if (/embed-\./.test(u)) return false   // embed-.html
+  return true
+}
+
 function parseEpisodesJs(jsContent) {
-  const episodes = []
-  // Cherche toutes les variables eps1, eps2, etc.
+  const listes = []
   const regex = /var\s+eps(\d+)\s*=\s*\[([\s\S]*?)\]\s*;/g
   let match
   while ((match = regex.exec(jsContent)) !== null) {
-    const epNum = parseInt(match[1])
-    // Extrait toutes les URLs entre guillemets simples ou doubles
-    const urlRegex = /['"]([^'"]+)['"]/g
-    const urls = []
-    let urlMatch
-    while ((urlMatch = urlRegex.exec(match[2])) !== null) {
-      urls.push(urlMatch[1])
-    }
-    if (urls.length > 0) {
-      episodes.push({ episode: epNum, urls })
-    }
+    const urls = [...match[2].matchAll(/['"]([^'"]+)['"]/g)].map(m => m[1])
+    listes.push({ hebergeur: parseInt(match[1]), urls })
   }
-  episodes.sort((a, b) => a.episode - b.episode)
+  if (!listes.length) return []
+
+  // L'hébergeur le plus complet donne le nombre d'épisodes de la saison
+  listes.sort((a, b) => a.hebergeur - b.hebergeur)
+  const nbEpisodes = Math.max(...listes.map(l => l.urls.length))
+
+  const episodes = []
+  for (let i = 0; i < nbEpisodes; i++) {
+    // Un hébergeur peut être incomplet : on ignore les trous plutôt que
+    // de décaler la numérotation des épisodes suivants
+    const urls = listes.map(l => l.urls[i]).filter(estUrlExploitable)
+    if (urls.length) episodes.push({ episode: i + 1, urls })
+  }
   return episodes
 }
 
-// Récupère les épisodes d'une saison
 const LANGUES_VIDEO = ['vostfr', 'vf', 'vkr']
 
 async function getEpisodes(slug, season, lang = 'vostfr') {
