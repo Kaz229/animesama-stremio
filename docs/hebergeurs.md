@@ -10,12 +10,32 @@ Taux d'extraction mesuré sur 10 URLs embed par hébergeur :
 |-----------|-----------|--------------|---------------|
 | **Sibnet** | 10/10 | MP4 après redirection signée | **oui** — 400 sans |
 | **Ansembed** | 10/10 | HLS m3u8 | non |
+| **Smoothpre** | ✅ | HLS m3u8 | non |
 | **Sendvid** | 0/10 | — | — (hébergeur en 502) |
 | **Streamtape** | non rencontré | MP4 (regex JS) | — |
 | **Lpayer (embed4me.com)** | ❌ | — | — |
 
 > Sendvid répond actuellement `502` sur ses pages embed : la panne est chez
 > l'hébergeur, l'extracteur n'est pas en cause.
+
+## Smoothpre
+
+Apparu après le relevé initial, il sert une bonne partie du catalogue récent
+(Grand Blue, Demon Slayer). Sa page embed charge un jwplayer dont la
+configuration est compressée par le packer de Dean Edwards :
+
+```js
+eval(function(p,a,c,k,e,d){ … }('b o={"1e":"1r://…"}', 36, 492, 'file|hls2|…'.split('|')))
+```
+
+Le déballage est une pure substitution — chaque nombre écrit en base 36 est
+remplacé par le mot de même rang — donc `deballerPacker()` le reconstitue sans
+exécuter le script. L'URL HLS se lit ensuite dans le résultat.
+
+> Attention à la casse : anime-sama écrit `https://Smoothpre.com/…` avec une
+> majuscule. L'aiguillage des extracteurs compare désormais en minuscules, faute
+> de quoi l'hébergeur passait à travers et retombait sur la recherche générique,
+> qui échouait.
 
 ## En-têtes par hébergeur
 

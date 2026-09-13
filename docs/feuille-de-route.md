@@ -143,10 +143,12 @@ Affecte Naruto, Bleach, 07 Ghost, etc.
 ## P4 — Confort et robustesse
 
 - [ ] Paginer la recherche, qui ne renvoie que la première page de résultats
-- [ ] Basculer le port par défaut sur une valeur libre : 7000 est occupé par le
-      récepteur AirPlay sur macOS (contournement documenté dans [utilisation-locale.md](utilisation-locale.md))
-- [ ] Traiter les 8 vulnérabilités npm (4 hautes) sans casser `puppeteer-core`
-- [ ] Retirer `axios` et `dns2` du `package.json`, tous deux inutilisés
+- [x] ~~Basculer le port par défaut sur une valeur libre~~ — 7011 depuis la 1.3.1
+- [x] ~~Retirer `axios` et `dns2` du `package.json`~~ — fait en 1.3.1
+- [ ] Traiter les 8 vulnérabilités npm (4 hautes) : elles viennent toutes de
+      `stremio-addon-sdk@1.6.10`, qui épingle `inquirer@6.5.2` et un `qs`
+      vulnérable via `express`. `npm audit fix` n'y peut rien sans `--force`,
+      qui casse le SDK — il faudrait en changer ou s'en passer
 - [ ] Containeriser avec Docker
 - [ ] Déployer sur un serveur public (Railway, Render) pour ne plus dépendre d'un PC
       allumé — lire d'abord [deploiement.md](deploiement.md), Ansembed y perd

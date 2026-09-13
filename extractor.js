@@ -17,8 +17,12 @@ function setCachedUrl(key, url) {
   urlCache.set(key, { url, time: Date.now() })
 }
 
+// Nombre de redirections suivies avant d'abandonner : sans borne, un
+// hébergeur qui se redirige vers lui-même ferait récurser httpsGet sans fin.
+const MAX_REDIRECTIONS = 5
+
 // Requête HTTPS générique
-function httpsGet(url, headers = {}) {
+function httpsGet(url, headers = {}, redirectionsRestantes = MAX_REDIRECTIONS) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const options = {
@@ -32,14 +36,26 @@ function httpsGet(url, headers = {}) {
         'Referer': 'https://anime-sama.to/',
         ...headers,
       },
-      rejectUnauthorized: false,
     }
     const req = https.get(options, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        if (redirectionsRestantes <= 0) {
+          return reject(new Error(`trop de redirections pour ${url}`))
+        }
         const loc = res.headers.location
         const newUrl = loc.startsWith('http') ? loc : `${parsed.origin}${loc}`
-        return resolve(httpsGet(newUrl, headers))
+        return resolve(httpsGet(newUrl, headers, redirectionsRestantes - 1))
       }
+      if (res.statusCode >= 400) {
+        res.resume()
+        const err = new Error(`HTTP ${res.statusCode} sur ${url}`)
+        err.statusCode = res.statusCode
+        return reject(err)
+      }
+      // Sans encodage déclaré, un caractère accentué à cheval sur deux paquets
+      // TCP est converti en deux moitiés invalides
+      res.setEncoding('utf8')
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => resolve(data))
@@ -164,6 +180,54 @@ async function extractSendvid(embedUrl) {
   return null
 }
 
+// === Smoothpre ===
+//
+// La page sert un jwplayer dont la configuration passe par le packer de Dean
+// Edwards : `eval(function(p,a,c,k,e,d){...}('payload', base, count, 'k1|k2|…'))`.
+// Le déballage est une simple substitution — chaque nombre écrit en base `base`
+// est remplacé par le mot de même rang — donc pas besoin d'exécuter le script.
+function deballerPacker(js) {
+  const entete = js.match(
+    /}\s*\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'\.split\('\|'\)/
+  )
+  if (!entete) return null
+
+  const charge = entete[1].replace(/\\'/g, "'").replace(/\\\\/g, '\\')
+  const base = parseInt(entete[2])
+  const mots = entete[4].split('|')
+
+  let sortie = charge
+  for (let i = parseInt(entete[3]) - 1; i >= 0; i--) {
+    if (!mots[i]) continue
+    sortie = sortie.replace(new RegExp('\\b' + i.toString(base) + '\\b', 'g'), mots[i])
+  }
+  return sortie
+}
+
+async function extractSmoothpre(embedUrl) {
+  const cached = getCachedUrl(embedUrl)
+  if (cached) return cached
+
+  try {
+    const html = await httpsGet(embedUrl)
+    const packe = html.match(/eval\(function\(p,a,c,k,e,[^\n]*/)
+    const deballe = packe ? deballerPacker(packe[0]) : null
+    const source = deballe || html
+
+    const url = source.match(/["']((?:https?:)?\/\/[^"']+\.m3u8[^"']*)["']/i)?.[1] ||
+                source.match(/["']((?:https?:)?\/\/[^"']+\.mp4[^"']*)["']/i)?.[1]
+    if (url) {
+      const absolue = url.startsWith('//') ? 'https:' + url : url
+      console.log('[extractor] smoothpre:', absolue.substring(0, 80))
+      setCachedUrl(embedUrl, absolue)
+      return absolue
+    }
+  } catch (err) {
+    console.error('[extractor] smoothpre erreur:', err.message)
+  }
+  return null
+}
+
 // === Lpayer (Puppeteer) ===
 async function getPuppeteerBrowser() {
   try {
@@ -178,10 +242,24 @@ async function getPuppeteerBrowser() {
   puppeteerBrowser = null
 
   const fs = require('fs')
+  // Seuls les chemins Windows étaient testés : sur macOS et Linux l'extraction
+  // lpayer échouait sur « Chrome non trouvé » même avec Chrome installé.
+  // CHROME_PATH permet de désigner un binaire hors des emplacements usuels.
   const executablePaths = [
+    process.env.CHROME_PATH,
+    // macOS
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+    // Linux
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    // Windows
     'C:/Program Files/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-  ]
+  ].filter(Boolean)
 
   let executablePath = null
   for (const p of executablePaths) {
@@ -189,7 +267,7 @@ async function getPuppeteerBrowser() {
   }
 
   if (!executablePath) {
-    throw new Error('Chrome non trouvé pour lpayer extraction')
+    throw new Error('Chrome non trouvé pour lpayer extraction (définir CHROME_PATH)')
   }
 
   const puppeteer = require('puppeteer-core')
@@ -285,12 +363,18 @@ async function extractLpayer(embedUrl) {
 async function extractVideoUrl(embedUrl) {
   console.log('[extractor] Extraction:', embedUrl.substring(0, 80))
 
-  if (embedUrl.includes('ansembed.net')) return extractAnsembed(embedUrl)
-  if (embedUrl.includes('sibnet.ru')) return extractSibnet(embedUrl)
-  if (embedUrl.includes('vidmoly')) return extractVidmoly(embedUrl)
-  if (embedUrl.includes('streamtape')) return extractStreamtape(embedUrl)
-  if (embedUrl.includes('sendvid')) return extractSendvid(embedUrl)
-  if (embedUrl.includes('lpayer') || embedUrl.includes('embed4me')) return extractLpayer(embedUrl)
+  // L'aiguillage se fait sur l'URL en minuscules : le site écrit certains
+  // hôtes avec une majuscule (« https://Smoothpre.com/… »), ce qui faisait
+  // manquer l'extracteur et retomber sur la recherche générique.
+  const hote = embedUrl.toLowerCase()
+
+  if (hote.includes('ansembed.net')) return extractAnsembed(embedUrl)
+  if (hote.includes('sibnet.ru')) return extractSibnet(embedUrl)
+  if (hote.includes('vidmoly')) return extractVidmoly(embedUrl)
+  if (hote.includes('streamtape')) return extractStreamtape(embedUrl)
+  if (hote.includes('sendvid')) return extractSendvid(embedUrl)
+  if (hote.includes('smoothpre')) return extractSmoothpre(embedUrl)
+  if (hote.includes('lpayer') || hote.includes('embed4me')) return extractLpayer(embedUrl)
 
   // Fallback: tentative générique m3u8/mp4 dans le HTML
   try {

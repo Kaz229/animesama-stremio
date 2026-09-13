@@ -2,7 +2,7 @@
 
 ```
 animesama-stremio/
-├── index.js       — Point d'entrée, lance le serveur HTTP sur le port 7000
+├── index.js       — Point d'entrée, lance le serveur HTTP sur le port 7011
 ├── addon.js       — Handlers Stremio (catalog, meta, stream)
 ├── scraper.js     — Scraping d'anime-sama.to (catalogue, métadonnées, épisodes)
 ├── extractor.js   — Extraction des URLs vidéo depuis les hébergeurs
@@ -159,14 +159,20 @@ titres sans apparaître dans le HTML : elle est découverte en sondant
 ```json
 {
   "stremio-addon-sdk": "^1.6.10",
-  "axios": "^1.6.0",
   "cheerio": "^1.0.0-rc.12",
   "express": "^4.18.2",
-  "puppeteer-core": "^25.10.0",
-  "dns2": "^3.1.1"
+  "puppeteer-core": "^25.10.0"
 }
 ```
 
-> `axios` est importé dans `package.json` mais non utilisé dans `scraper.js` (remplacé par `https` natif à cause d'un bug Node v25.9 avec `httpsAgent`).
-> `dns2` est importé mais non utilisé (approche DoH abandonnée au profit de l'IP hardcodée).
+> `axios` et `dns2` ont été retirés : le premier était remplacé par `https` natif
+> (bug Node v25.9 avec `httpsAgent`), le second abandonné avec l'approche DoH.
+> `express` reste déclaré mais n'est pas importé par le code : c'est le SDK qui
+> l'utilise, et il le déclare déjà de son côté.
+
+Les 8 vulnérabilités npm (4 hautes) proviennent toutes de `stremio-addon-sdk@1.6.10`,
+qui épingle `inquirer@6.5.2` (→ `external-editor` → `tmp`) et une version
+vulnérable de `qs` via `express`. `npm audit fix` ne peut rien sans `--force`,
+qui casserait le SDK. Elles concernent des outils de développement du SDK, pas
+le chemin de code servi aux requêtes.
 

@@ -32,20 +32,23 @@ npm install
 node index.js
 ```
 
-Le serveur écoute sur le port 7000, configurable via `PORT` :
+Le serveur écoute sur le port 7011, configurable via `PORT` :
 
 ```bash
-PORT=7010 node index.js
+PORT=7042 node index.js
 ```
 
-> Sur macOS, le port 7000 est occupé par le récepteur AirPlay. Utilisez un autre port.
+> Le défaut évite le port 7000, occupé par le récepteur AirPlay sur macOS.
+> Sur Windows, la syntaxe ci-dessus ne fonctionne pas : utiliser
+> `set PORT=7042 && node index.js` en `cmd`, ou `$env:PORT=7042; node index.js`
+> en PowerShell.
 
 ## Ajouter dans Stremio
 
 **Paramètres → Addons → Addon communautaire**, puis l'URL du manifest :
 
 ```
-http://localhost:7000/manifest.json
+http://localhost:7011/manifest.json
 ```
 
 Pour utiliser l'addon depuis vos autres appareils (tablette, TV), remplacez

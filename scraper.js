@@ -1,4 +1,3 @@
-const axios = require('axios')
 const cheerio = require('cheerio')
 const https = require('https')
 
@@ -7,8 +6,14 @@ const DNS_MAP = {
   'anime-sama.to': '104.26.12.154',
 }
 
-// Requête HTTPS avec IP forcée pour contourner le blocage DNS
-function httpsGet(url) {
+// Nombre de redirections suivies avant d'abandonner : sans borne, un site
+// qui se redirige vers lui-même ferait récurser httpsGet indéfiniment.
+const MAX_REDIRECTIONS = 5
+
+// Requête HTTPS avec IP forcée pour contourner le blocage DNS.
+// `servername` porte le vrai nom d'hôte, la validation du certificat reste
+// donc pleinement fonctionnelle malgré la connexion par IP.
+function httpsGet(url, redirectionsRestantes = MAX_REDIRECTIONS) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const hostname = parsed.hostname
@@ -25,15 +30,31 @@ function httpsGet(url) {
         'Accept-Language': 'fr-FR,fr;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,*/*',
       },
-      rejectUnauthorized: false,
     }
     const req = https.get(options, res => {
       // Gère les redirections
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        if (redirectionsRestantes <= 0) {
+          return reject(new Error(`trop de redirections pour ${url}`))
+        }
         const loc = res.headers.location
         const newUrl = loc.startsWith('http') ? loc : `https://${hostname}${loc}`
-        return resolve(httpsGet(newUrl))
+        return resolve(httpsGet(newUrl, redirectionsRestantes - 1))
       }
+      // Une erreur HTTP renvoyait jusqu'ici sa page d'erreur comme si c'était
+      // le contenu attendu : le parseur n'y trouvait rien et l'échec passait
+      // pour un résultat vide. Le code de statut est porté par l'erreur, les
+      // appelants qui sondent une ressource optionnelle pouvant le consulter.
+      if (res.statusCode >= 400) {
+        res.resume()
+        const err = new Error(`HTTP ${res.statusCode} sur ${url}`)
+        err.statusCode = res.statusCode
+        return reject(err)
+      }
+      // Sans encodage déclaré, une lettre accentuée à cheval sur deux paquets
+      // TCP est convertie en deux moitiés invalides
+      res.setEncoding('utf8')
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => resolve(data))
@@ -225,17 +246,22 @@ async function getAnimeMeta(slug) {
   const title = $('h1').first().text().trim() ||
                 $('meta[property="og:title"]').attr('content') || slug
 
-  const description = $('meta[property="og:description"]').attr('content') ||
-                      $('p.synopsis, p.description, .synopsis').first().text().trim() || ''
+  // La fiche ne porte ni og:description ni meta description : le synopsis vit
+  // dans .clamp-synopsis, présent une seule fois par page. Les anciens
+  // sélecteurs ne trouvaient rien, toutes les fiches sortaient sans résumé.
+  const description = $('.clamp-synopsis').first().text().trim() ||
+                      $('meta[property="og:description"]').attr('content') || ''
 
   const poster = $('meta[property="og:image"]').attr('content') ||
                  $('img.poster, img.cover, .cover img').first().attr('src') || ''
 
-  const genres = []
-  $('a[href*="/genre/"], a[href*="genre="]').each((_, el) => {
-    const g = $(el).text().trim()
-    if (g) genres.push(g)
-  })
+  // Les genres du titre sont les .genre-pill. Ne pas confondre avec les
+  // .genre-tag, qui appartiennent aux cartes de recommandation en bas de page
+  // et mélangeraient les genres d'autres animés à ceux-ci.
+  const genres = $('.genre-pill')
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean)
 
   // Détecte les saisons via panneauAnime("Saison 1", "saison1/vostfr")
   // dans le JS de la page. Les sections scan/vf, film/vostfr, oav/vostfr,
@@ -337,11 +363,17 @@ async function getEpisodes(slug, season, lang = 'vostfr') {
 
   const url = `${BASE_URL}/catalogue/${slug}/saison${season}/${lang}/episodes.js`
   try {
-    const res = { data: await httpsGet(url) }
-    const episodes = parseEpisodesJs(res.data)
+    const episodes = parseEpisodesJs(await httpsGet(url))
     setCache(key, episodes)
     return episodes
   } catch (err) {
+    // getAnimeMeta sonde chaque langue pour découvrir celles qui existent :
+    // un 404 y est une réponse normale, pas une panne. On la mémorise pour
+    // ne pas resonder à chaque requête.
+    if (err.statusCode === 404) {
+      setCache(key, [])
+      return []
+    }
     console.error(`[scraper] Erreur episodes.js ${url}:`, err.message)
     return []
   }
@@ -369,7 +401,7 @@ async function extractStreamUrl(embedUrl) {
 const HEBERGEURS_AVEC_REFERER = ['sibnet.ru']
 
 function construireBehaviorHints(embedUrl) {
-  if (!HEBERGEURS_AVEC_REFERER.some(h => embedUrl.includes(h))) {
+  if (!HEBERGEURS_AVEC_REFERER.some(h => embedUrl.toLowerCase().includes(h))) {
     return { notWebReady: false }
   }
   return {
@@ -406,14 +438,17 @@ async function getStreams(slug, season, episode, lang = 'vostfr') {
   return streams
 }
 
+// Comparaison en minuscules : le site écrit certains hôtes avec une majuscule
 function getPlayerName(url) {
-  if (url.includes('ansembed')) return 'Ansembed'
-  if (url.includes('sendvid')) return 'Sendvid'
-  if (url.includes('sibnet')) return 'Sibnet'
-  if (url.includes('vidmoly')) return 'Vidmoly'
-  if (url.includes('uqload')) return 'Uqload'
-  if (url.includes('vudeo')) return 'Vudeo'
-  if (url.includes('streamtape')) return 'Streamtape'
+  const hote = url.toLowerCase()
+  if (hote.includes('ansembed')) return 'Ansembed'
+  if (hote.includes('sendvid')) return 'Sendvid'
+  if (hote.includes('sibnet')) return 'Sibnet'
+  if (hote.includes('vidmoly')) return 'Vidmoly'
+  if (hote.includes('smoothpre')) return 'Smoothpre'
+  if (hote.includes('uqload')) return 'Uqload'
+  if (hote.includes('vudeo')) return 'Vudeo'
+  if (hote.includes('streamtape')) return 'Streamtape'
   return 'Source'
 }
 

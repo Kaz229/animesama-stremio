@@ -21,31 +21,31 @@ npm install
 
 ## 3. Choix du port
 
-Le port par défaut est 7000, mais **sur macOS il est occupé par le récepteur
-AirPlay** (`ControlCenter`). Vérifier avant de lancer :
+Le port par défaut est 7011. Il évite le 7000, **occupé sur macOS par le
+récepteur AirPlay** (`ControlCenter`). Vérifier avant de lancer :
 
 ```bash
-lsof -i tcp:7000          # macOS / Linux
+lsof -i tcp:7011          # macOS / Linux
 ```
 
 Si quelque chose écoute déjà, ne pas tuer le processus : passer un autre port,
 `index.js` lit `process.env.PORT`.
 
 ```bash
-PORT=7010 node index.js
+PORT=7042 node index.js
 ```
 
 Le serveur affiche l'URL du manifest au démarrage. Vérifier qu'il répond :
 
 ```bash
-curl -s http://localhost:7010/manifest.json | head -c 120
+curl -s http://localhost:7011/manifest.json | head -c 120
 ```
 
 ## 4. Ajouter l'addon dans Stremio, sur la machine qui héberge le serveur
 
 1. Ouvrir Stremio
 2. **Paramètres → Addons → Addon communautaire**
-3. Coller `http://localhost:7010/manifest.json`
+3. Coller `http://localhost:7011/manifest.json`
 4. Installer
 
 ## 5. Utiliser l'addon depuis vos autres appareils
@@ -67,7 +67,7 @@ hostname -I | awk '{print $1}'              # Linux
 ipconfig | findstr IPv4                     # Windows
 ```
 
-Puis installer `http://192.168.1.42:7010/manifest.json` (avec votre adresse).
+Puis installer `http://192.168.1.42:7011/manifest.json` (avec votre adresse).
 Le serveur écoute déjà sur toutes les interfaces, il n'y a rien à changer dans
 le code.
 
@@ -79,7 +79,24 @@ Quatre conditions pour que cela marche :
   l'attribuer ailleurs et l'addon cessera de répondre ;
 - si l'URL change, **désinstaller puis réinstaller** l'addon dans Stremio.
 
-## 6. En cas de problème
+## 6. Particularités Windows
+
+Trois points ne se voient pas sur macOS ni sur Linux :
+
+- **La syntaxe `PORT=… node index.js` ne marche pas.** Elle est propre aux
+  shells Unix. Utiliser `set PORT=7042 && node index.js` en `cmd`, ou
+  `$env:PORT=7042; node index.js` en PowerShell.
+- **Hyper-V, WSL2 et Docker Desktop réservent des plages de ports**, parfois
+  dans la zone 1024-10000 et variables d'une machine à l'autre. Un port réservé
+  donne un `EADDRINUSE` alors que rien n'écoute et que `netstat` ne montre rien.
+  Vérifier avec `netsh int ipv4 show excludedportrange protocol=tcp`, et changer
+  de port le cas échéant.
+- **Le pare-feu Windows Defender** demande une autorisation au premier
+  lancement. Refusée, ou accordée au seul profil « privé » alors que le réseau
+  est classé « public », le serveur tourne mais reste injoignable depuis la TV
+  ou la tablette (section 5).
+
+## 7. En cas de problème
 
 | Symptôme | Cause probable |
 |---|---|
