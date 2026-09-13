@@ -54,7 +54,36 @@ puis relancez ce script. C'est le seul prérequis."
   info "Node.js $(node -v) installé."
 fi
 
-# --- 2. Téléchargement du code ---------------------------------------------
+# --- 2. Arrêt d'une instance précédente ------------------------------------
+# Avant de toucher aux fichiers, pas après : c'est indispensable sous Windows,
+# où un fichier ouvert ne peut pas être remplacé, et sans inconvénient ici.
+# Le port mémorisé redevient libre par la même occasion, ce qui permet de le
+# réutiliser et de garder l'URL du manifest inchangée.
+addon_a_nous() {
+  curl -fsS --max-time 2 "http://localhost:$1/manifest.json" 2>/dev/null \
+    | grep -q 'fr\.animesama\.stremio'
+}
+
+arreter_instance() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti "tcp:$1" 2>/dev/null | xargs kill 2>/dev/null || true
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -k "$1/tcp" >/dev/null 2>&1 || true
+  fi
+  sleep 2
+}
+
+FICHIER_PORT="$DOSSIER/port.txt"
+if [ -f "$FICHIER_PORT" ]; then
+  DEJA_LA="$(tr -d '[:space:]' < "$FICHIER_PORT")"
+  if [ -n "$DEJA_LA" ] && addon_a_nous "$DEJA_LA"; then
+    titre 'Instance déjà en marche'
+    info "L'addon tourne sur le port $DEJA_LA. Arrêt avant mise à jour…"
+    arreter_instance "$DEJA_LA"
+  fi
+fi
+
+# --- 3. Téléchargement du code ---------------------------------------------
 titre 'Téléchargement de la dernière version'
 
 TEMP="$(mktemp -d)"
@@ -72,14 +101,14 @@ mkdir -p "$DOSSIER"
    -exec cp -R {} "$DOSSIER/" \;)
 info "Code installé dans $DOSSIER"
 
-# --- 3. Dépendances --------------------------------------------------------
+# --- 4. Dépendances --------------------------------------------------------
 titre 'Installation des dépendances'
 info 'Cette étape prend une à deux minutes la première fois.'
 
 (cd "$DOSSIER" && npm install --omit=dev --no-audit --no-fund --loglevel=error) \
   || fin "L'installation des dépendances a échoué."
 
-# --- 4. Choix du port ------------------------------------------------------
+# --- 5. Choix du port ------------------------------------------------------
 # Le port doit rester le même d'un lancement à l'autre : l'URL du manifest en
 # dépend, et Stremio obligerait à réinstaller l'addon à chaque changement.
 titre 'Choix du port'
@@ -93,25 +122,9 @@ port_libre() {
   " 2>/dev/null && return 1 || return 0
 }
 
-# Un port occupé ne veut pas dire qu'il faut en changer : le plus souvent
-# c'est notre propre addon, resté en marche depuis le lancement précédent.
-# L'arrêter et reprendre le même port évite de modifier l'URL du manifest,
-# donc d'obliger à réinstaller l'addon dans Stremio.
-addon_a_nous() {
-  curl -fsS --max-time 2 "http://localhost:$1/manifest.json" 2>/dev/null \
-    | grep -q 'fr\.animesama\.stremio'
-}
-
-arreter_instance() {
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -ti "tcp:$1" 2>/dev/null | xargs kill 2>/dev/null || true
-  elif command -v fuser >/dev/null 2>&1; then
-    fuser -k "$1/tcp" >/dev/null 2>&1 || true
-  fi
-  sleep 2
-}
-
-FICHIER_PORT="$DOSSIER/port.txt"
+# L'instance précédente a déjà été arrêtée plus haut : le port mémorisé est
+# donc normalement libre. Le filet de sécurité reste utile si elle avait été
+# lancée depuis un autre dossier, ou si l'arrêt avait échoué.
 PORT=''
 
 if [ -f "$FICHIER_PORT" ]; then
@@ -142,7 +155,7 @@ if [ -z "$PORT" ]; then
 fi
 info "Port retenu : $PORT"
 
-# --- 5. Démarrage ----------------------------------------------------------
+# --- 6. Démarrage ----------------------------------------------------------
 titre 'Démarrage du serveur'
 
 (cd "$DOSSIER" && PORT="$PORT" node index.js) &
@@ -157,7 +170,7 @@ for _ in $(seq 1 30); do
 done
 [ "$PRET" = 1 ] || fin "Le serveur n'a pas répondu. Relancez ce script."
 
-# --- 6. Installation dans Stremio ------------------------------------------
+# --- 7. Installation dans Stremio ------------------------------------------
 if [ "$MACOS" = 1 ]; then
   printf '%s' "$MANIFEST" | pbcopy 2>/dev/null || true
 elif command -v xclip >/dev/null 2>&1; then
